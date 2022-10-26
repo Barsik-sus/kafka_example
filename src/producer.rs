@@ -33,7 +33,7 @@ fn main() -> Result< (), Box< dyn std::error::Error > >
     let messages = ( 0..9 )
     .map( | msg|
     {
-      let value = msg.to_string();
+      let value = format!( r#"{{ "field_a" : {msg}, "field_b" : 14.0 }}"# );
       println!( "Preparing to produce record: {} {}", "alice", value );
       producer.send
       (
@@ -48,7 +48,7 @@ fn main() -> Result< (), Box< dyn std::error::Error > >
     for msg in messages
     {
       msg.wait()
-      .map_err( | err | eprintln!("error producing message: {}", err))
+      .map_err( | err | eprintln!( "error producing message: {}", err ))
       .and_then( | result | log_produce_result( &topic, result ) )
       .ok();
     }
