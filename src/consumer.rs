@@ -35,26 +35,22 @@ fn main() -> Result< (), Box< dyn std::error::Error > >
   let consumer: StreamConsumer = config.set( "group.id", "rust_example_group_1" ).create()?;
 
   let sql = input( "sql> " ).unwrap();
-  // let sql = "select 'a', field_a, field_b*3 from 'topic_0' where ( field_a < 4 ) AND ( field_b > 8 )";
   let dialect = GenericDialect {};
   let ast = Parser::parse_sql( &dialect, &sql ).unwrap();
 
   let statement = &ast[ 0 ];
-  let mut header = vec![];
   let mut to_show = Vec::new();
   let mut take_from = String::new();
   let mut to_filter = None;
   log::info!( "Start init" );
   if let sqlparser::ast::Statement::Query( query ) = statement
   {
-    dbg!( &query.body );
     match *query.body.clone()
     {
       Select( select_query ) => match *select_query
       {
         RealSelect{ projection, from, selection, .. } =>
         {
-          header = projection.clone();
           projection.iter()
           .for_each( | val |
           {
@@ -62,11 +58,12 @@ fn main() -> Result< (), Box< dyn std::error::Error > >
             {
               ast::SelectItem::UnnamedExpr( expr ) =>
               {
-                to_show.push( exec_expr( expr.to_owned() ) );
+                to_show.push(( expr.to_string(), exec_expr( expr.to_owned() ) ) );
               },
               ast::SelectItem::Wildcard =>
               {
-                todo!( "SELECT * FROM <topic>");
+              	// можно добавить экспрешн с плейсхолдером *
+                to_show.push(( "*".to_owned(), Box::new( | _ | ast::Value::Placeholder( "*".to_owned() ) ) ) );
               },
               _ => unimplemented!()
             }
@@ -85,11 +82,6 @@ fn main() -> Result< (), Box< dyn std::error::Error > >
   log::info!( "Take from: {take_from}" );
   // here must be known from which topic we take values
   consumer.subscribe( &vec![ take_from.as_ref() ] )?;
-
-  // print header of table
-  print!( "|" );
-  header.iter().for_each( | cell | print!( "{: <15} |", cell.to_string() ) );
-  println!();
 
   let processor = consumer
   .start()
@@ -134,8 +126,22 @@ fn main() -> Result< (), Box< dyn std::error::Error > >
   // here will show all messages, after filter, somehow
   .for_each( | msg |
   {
-    print!( "|" );
-    to_show.iter().for_each( | show | print!( "{: <15} |", show( &msg ).to_string() ) );
+    println!( "Message:" );
+    // Если плейсхолдер * - выводить все значения из мапы
+    to_show.iter().for_each
+    (
+      |( key, show )|
+      {
+        match show( &msg )
+        {
+          ast::Value::Placeholder( ph ) if &ph == "*" =>
+          {
+            msg.iter().for_each( |( k, v )| println!( "{k}: {: <15}", v.to_string() ) )
+          },
+          msg => println!( "{key}: {: <15}", msg.to_string() )
+        }
+      }
+    );
     println!();
     Ok( () )
   });
